@@ -1,4 +1,4 @@
-import { RefObject } from 'react';
+import { MutableRefObject, RefObject } from 'react';
 import { FileSources, EModelEndpoint, isEphemeralAgentId } from 'librechat-data-provider';
 import type { UseMutationResult } from '@tanstack/react-query';
 import type * as InputNumberPrimitive from 'rc-input-number';
@@ -227,6 +227,8 @@ export type AgentModelPanelProps = {
   agent_id?: string;
   providers: Option[];
   models: Record<string, string[] | undefined>;
+  modelsFetched: boolean;
+  pendingProviderModelRef: MutableRefObject<string | null>;
   setActivePanel: React.Dispatch<React.SetStateAction<Panel>>;
 };
 

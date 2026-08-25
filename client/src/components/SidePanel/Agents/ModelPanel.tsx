@@ -25,7 +25,12 @@ export default function ModelPanel({
   providers,
   setActivePanel,
   models: modelsData,
-}: Pick<AgentModelPanelProps, 'models' | 'providers' | 'setActivePanel'>) {
+  modelsFetched,
+  pendingProviderModelRef,
+}: Pick<
+  AgentModelPanelProps,
+  'models' | 'modelsFetched' | 'pendingProviderModelRef' | 'providers' | 'setActivePanel'
+>) {
   const localize = useLocalize();
   const { announcePolite } = useLiveAnnouncer();
 
@@ -46,23 +51,28 @@ export default function ModelPanel({
     () => (provider ? (modelsData[provider] ?? []) : []),
     [modelsData, provider],
   );
-
   useEffect(() => {
+    if (!modelsFetched) {
+      return;
+    }
+
     const _model = model ?? '';
     if (provider && _model) {
-      const modelExists = models.includes(_model);
-      if (!modelExists) {
-        const newModels = modelsData[provider] ?? [];
-        setValue('model', newModels[0] ?? '');
+      if (!models.includes(_model)) {
+        setValue('model', '');
+        localStorage.removeItem(LocalStorageKeys.LAST_AGENT_MODEL);
+        return;
       }
       localStorage.setItem(LocalStorageKeys.LAST_AGENT_MODEL, _model);
       localStorage.setItem(LocalStorageKeys.LAST_AGENT_PROVIDER, provider);
+      return;
     }
 
-    if (provider && !_model) {
+    if (pendingProviderModelRef.current === provider) {
+      pendingProviderModelRef.current = null;
       setValue('model', models[0] ?? '');
     }
-  }, [provider, models, modelsData, setValue, model]);
+  }, [provider, models, modelsFetched, pendingProviderModelRef, setValue, model]);
 
   const { data: endpointsConfig = {} } = useGetEndpointsQuery();
 
@@ -150,7 +160,17 @@ export default function ModelPanel({
                     displayValue={alternateName[display] ?? display}
                     selectPlaceholder={localize('com_ui_select_provider')}
                     searchPlaceholder={localize('com_ui_select_search_provider')}
-                    setValue={field.onChange}
+                    setValue={(value) => {
+                      if (!modelsFetched) {
+                        pendingProviderModelRef.current = value;
+                        setValue('model', '');
+                        field.onChange(value);
+                        return;
+                      }
+                      pendingProviderModelRef.current = null;
+                      field.onChange(value);
+                      setValue('model', modelsData[value]?.[0] ?? '');
+                    }}
                     items={providers.map((provider) => ({
                       label: typeof provider === 'string' ? provider : provider.label,
                       value: typeof provider === 'string' ? provider : provider.value,
@@ -197,7 +217,10 @@ export default function ModelPanel({
                         : localize('com_ui_select_provider_first')
                     }
                     searchPlaceholder={localize('com_ui_select_model')}
-                    setValue={field.onChange}
+                    setValue={(value) => {
+                      pendingProviderModelRef.current = null;
+                      field.onChange(value);
+                    }}
                     items={models.map((model) => ({
                       label: model,
                       value: model,

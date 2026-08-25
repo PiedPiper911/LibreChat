@@ -10,6 +10,15 @@ import type { AgentForm } from '~/common';
 
 // Mock toast context - define this after all mocks
 let mockShowToast: jest.Mock;
+let mockModelsQuery = { data: {}, isFetchedAfterMount: true, isSuccess: true };
+let mockAgentPanelContext = {
+  activePanel: 'builder',
+  agentsConfig: { allowedProviders: [] as string[] },
+  setActivePanel: jest.fn(),
+  endpointsConfig: {},
+  setCurrentAgentId: jest.fn(),
+  agent_id: 'agent-123' as string | undefined,
+};
 
 // Mock notification severity enum before other imports
 jest.mock('~/common/types', () => ({
@@ -77,7 +86,7 @@ jest.mock('@librechat/client', () => ({
 
 // Mock other dependencies
 jest.mock('librechat-data-provider/react-query', () => ({
-  useGetModelsQuery: () => ({ data: {} }),
+  useGetModelsQuery: () => mockModelsQuery,
   useGetEffectivePermissionsQuery: () => ({
     data: { permissionBits: 0xffffffff }, // All permissions
     isLoading: false,
@@ -87,6 +96,20 @@ jest.mock('librechat-data-provider/react-query', () => ({
 
 jest.mock('~/utils', () => ({
   createProviderOption: jest.fn((provider: string) => ({ value: provider, label: provider })),
+  getAvailableAgentSelection: ({
+    provider,
+    model,
+    providers,
+    models,
+  }: {
+    provider: string;
+    model: string;
+    providers: Array<{ value: string }>;
+    models: Record<string, string[]>;
+  }) => ({
+    provider: providers.some((option) => option.value === provider) ? provider : '',
+    model: models[provider]?.includes(model) ? model : '',
+  }),
   getDefaultAgentFormValues: jest.fn(() => ({
     id: '',
     name: '',
@@ -110,14 +133,7 @@ jest.mock('~/hooks/useResourcePermissions', () => ({
 }));
 
 jest.mock('~/Providers/AgentPanelContext', () => ({
-  useAgentPanelContext: () => ({
-    activePanel: 'builder',
-    agentsConfig: { allowedProviders: [] },
-    setActivePanel: jest.fn(),
-    endpointsConfig: {},
-    setCurrentAgentId: jest.fn(),
-    agent_id: 'agent-123',
-  }),
+  useAgentPanelContext: () => mockAgentPanelContext,
 }));
 
 jest.mock('~/common', () => ({
@@ -300,9 +316,137 @@ describe('AgentPanel - Update Agent Toast Messages', () => {
     mockShowToast = jest.fn();
     mockFormSubmitHandler = null;
     capturedFormMethods = null;
+    mockModelsQuery = { data: {}, isFetchedAfterMount: true, isSuccess: true };
+    mockAgentPanelContext = {
+      activePanel: 'builder',
+      agentsConfig: { allowedProviders: [] },
+      setActivePanel: jest.fn(),
+      endpointsConfig: {},
+      setCurrentAgentId: jest.fn(),
+      agent_id: 'agent-123',
+    };
+    localStorage.clear();
   });
 
   describe('AgentPanel', () => {
+    it('waits for the fetched model list before restoring saved defaults', async () => {
+      const { mockUseGetAgentByIdQuery } = setupMocks();
+      mockAgentQuery(mockUseGetAgentByIdQuery, {});
+      mockAgentPanelContext = {
+        ...mockAgentPanelContext,
+        endpointsConfig: { custom: {} },
+        agent_id: undefined,
+      };
+      mockModelsQuery = {
+        data: { custom: ['bundled-default'] },
+        isFetchedAfterMount: false,
+        isSuccess: true,
+      };
+      localStorage.setItem('lastAgentProvider', 'custom');
+      localStorage.setItem('lastAgentModel', 'server-model');
+
+      const Wrapper = createWrapper();
+      const { rerender } = render(<AgentPanel />, { wrapper: Wrapper });
+
+      expect(localStorage.getItem('lastAgentModel')).toBe('server-model');
+
+      mockModelsQuery = {
+        data: { custom: ['server-model'] },
+        isFetchedAfterMount: true,
+        isSuccess: true,
+      };
+      rerender(<AgentPanel />);
+
+      await waitFor(() => {
+        expect(capturedFormMethods?.getValues('provider')).toEqual({
+          value: 'custom',
+          label: 'custom',
+        });
+        expect(capturedFormMethods?.getValues('model')).toBe('server-model');
+      });
+      expect(localStorage.getItem('lastAgentModel')).toBe('server-model');
+    });
+
+    it('keeps saved defaults after an unsuccessful model fetch', async () => {
+      const { mockUseGetAgentByIdQuery } = setupMocks();
+      mockAgentQuery(mockUseGetAgentByIdQuery, {});
+      mockAgentPanelContext = {
+        ...mockAgentPanelContext,
+        endpointsConfig: { custom: {} },
+        agent_id: undefined,
+      };
+      mockModelsQuery = {
+        data: { custom: ['bundled-default'] },
+        isFetchedAfterMount: true,
+        isSuccess: false,
+      };
+      localStorage.setItem('lastAgentProvider', 'custom');
+      localStorage.setItem('lastAgentModel', 'server-model');
+
+      const Wrapper = createWrapper();
+      const { rerender } = render(<AgentPanel />, { wrapper: Wrapper });
+
+      expect(localStorage.getItem('lastAgentModel')).toBe('server-model');
+
+      mockModelsQuery = {
+        data: { custom: ['server-model'] },
+        isFetchedAfterMount: true,
+        isSuccess: true,
+      };
+      rerender(<AgentPanel />);
+
+      await waitFor(() => {
+        expect(capturedFormMethods?.getValues('model')).toBe('server-model');
+      });
+      expect(localStorage.getItem('lastAgentModel')).toBe('server-model');
+    });
+
+    it('preserves a provider and model selected before models finish loading', async () => {
+      const { mockUseGetAgentByIdQuery } = setupMocks();
+      mockAgentQuery(mockUseGetAgentByIdQuery, {});
+      mockAgentPanelContext = {
+        ...mockAgentPanelContext,
+        endpointsConfig: { custom: {} },
+        agent_id: undefined,
+      };
+      mockModelsQuery = {
+        data: { custom: ['bundled-default'] },
+        isFetchedAfterMount: false,
+        isSuccess: true,
+      };
+      localStorage.setItem('lastAgentProvider', 'custom');
+      localStorage.setItem('lastAgentModel', 'saved-model');
+
+      const Wrapper = createWrapper();
+      const { rerender } = render(<AgentPanel />, { wrapper: Wrapper });
+
+      act(() => {
+        capturedFormMethods?.setValue(
+          'provider',
+          { value: 'custom', label: 'custom' },
+          {
+            shouldDirty: true,
+          },
+        );
+        capturedFormMethods?.setValue('model', 'chosen-model', { shouldDirty: true });
+      });
+
+      mockModelsQuery = {
+        data: { custom: ['saved-model', 'chosen-model'] },
+        isFetchedAfterMount: true,
+        isSuccess: true,
+      };
+      rerender(<AgentPanel />);
+
+      await waitFor(() => {
+        expect(capturedFormMethods?.getValues('provider')).toEqual({
+          value: 'custom',
+          label: 'custom',
+        });
+        expect(capturedFormMethods?.getValues('model')).toBe('chosen-model');
+      });
+    });
+
     it('should show "no changes" toast when version does not change', async () => {
       const { mockUseGetAgentByIdQuery, mockUpdateAgent } = setupMocks();
 

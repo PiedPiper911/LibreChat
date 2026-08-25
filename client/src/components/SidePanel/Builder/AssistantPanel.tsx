@@ -50,7 +50,7 @@ export default function AssistantPanel({
   assistantsConfig,
   version,
 }: AssistantPanelProps & { assistantsConfig?: TConfig | null }) {
-  const modelsQuery = useGetModelsQuery();
+  const modelsQuery = useGetModelsQuery({ refetchOnMount: 'always' });
   const assistantMap = useAssistantsMapContext();
 
   const { data: allTools = [] } = useAvailableAgentToolsQuery();
@@ -64,10 +64,18 @@ export default function AssistantPanel({
 
   const [showToolDialog, setShowToolDialog] = useState(false);
 
-  const { control, handleSubmit, reset, setValue, getValues } = methods;
+  const {
+    control,
+    handleSubmit,
+    reset,
+    setValue,
+    getValues,
+    formState: { dirtyFields },
+  } = methods;
   const assistant = useWatch({ control, name: 'assistant' });
   const functions = useWatch({ control, name: 'functions' });
   const assistant_id = useWatch({ control, name: 'id' });
+  const model = useWatch({ control, name: 'model' });
 
   const activeModel = useMemo(() => {
     return assistantMap?.[endpoint]?.[assistant_id]?.model;
@@ -231,6 +239,11 @@ export default function AssistantPanel({
                 setCurrentAssistantId={setCurrentAssistantId}
                 selectedAssistant={current_assistant_id ?? null}
                 createMutation={create}
+                models={modelsQuery.data?.[endpoint] ?? []}
+                modelsFetched={modelsQuery.isFetchedAfterMount && modelsQuery.isSuccess}
+                setValue={setValue}
+                model={model}
+                modelDirty={dirtyFields.model === true}
               />
             )}
           />

@@ -4,7 +4,6 @@ import {
   alternateName,
   EModelEndpoint,
   EToolResources,
-  LocalStorageKeys,
   defaultAgentFormValues,
 } from 'librechat-data-provider';
 import type { Agent, TFile, StatefulCodeEnvironment } from 'librechat-data-provider';
@@ -45,16 +44,14 @@ export const createProviderOption = (provider: string) => ({
 });
 
 /**
- * Gets default agent form values with localStorage values for model and provider.
- * This is used to initialize agent forms with the last used model and provider.
+ * Gets default agent form values.
+ * Stored model defaults are restored after the current provider and model lists load.
  **/
 export const getDefaultAgentFormValues = (
   statefulCodeEnvironment: StatefulCodeEnvironment = 'user',
 ) => ({
   ...defaultAgentFormValues,
   stateful_code_environment: statefulCodeEnvironment,
-  model: localStorage.getItem(LocalStorageKeys.LAST_AGENT_MODEL) ?? '',
-  provider: createProviderOption(localStorage.getItem(LocalStorageKeys.LAST_AGENT_PROVIDER) ?? ''),
   avatar_file: null,
   avatar_preview: '',
   avatar_action: null,

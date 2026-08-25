@@ -1,4 +1,4 @@
-import React, { useMemo, useCallback, useRef, useState } from 'react';
+import React, { useMemo, useCallback, useEffect, useRef, useState } from 'react';
 import { Plus } from 'lucide-react';
 import isEqual from 'lodash/isEqual';
 import { Button, useToastContext } from '@librechat/client';
@@ -10,6 +10,7 @@ import {
   SystemRoles,
   ResourceType,
   EModelEndpoint,
+  LocalStorageKeys,
   PermissionBits,
   removeCodeExecutionCaller,
   resolveStatefulCodeEnvironment,
@@ -26,7 +27,11 @@ import {
   useGetExpandedAgentByIdQuery,
   useUploadAgentAvatarMutation,
 } from '~/data-provider';
-import { createProviderOption, getDefaultAgentFormValues } from '~/utils';
+import {
+  createProviderOption,
+  getAvailableAgentSelection,
+  getDefaultAgentFormValues,
+} from '~/utils';
 import { useResourcePermissions } from '~/hooks/useResourcePermissions';
 import { useSelectAgent, useLocalize, useAuthContext } from '~/hooks';
 import { useAgentPanelContext } from '~/Providers/AgentPanelContext';
@@ -315,6 +320,7 @@ export default function AgentPanel() {
   const agentQuery = canEdit && expandedAgentQuery.data ? expandedAgentQuery : basicAgentQuery;
 
   const models = useMemo(() => modelsQuery.data ?? {}, [modelsQuery.data]);
+  const pendingProviderModelRef = useRef<string | null>(null);
   const methods = useForm<AgentForm>({
     defaultValues: getDefaultAgentFormValues(defaultStatefulCodeEnvironment),
     mode: 'onChange',
@@ -329,6 +335,11 @@ export default function AgentPanel() {
     formState: { dirtyFields },
   } = methods;
   const [isAvatarUploadInFlight, setIsAvatarUploadInFlight] = useState(false);
+
+  useEffect(() => {
+    pendingProviderModelRef.current = null;
+  }, [current_agent_id]);
+
   const uploadAvatarMutation = useUploadAgentAvatarMutation({
     onSuccess: (updatedAgent) => {
       showToast({ message: localize('com_ui_upload_agent_avatar') });
@@ -394,6 +405,55 @@ export default function AgentPanel() {
         .map((provider) => createProviderOption(provider)),
     [endpointsConfig, allowedProviders],
   );
+  const restoredDefaultsRef = useRef(false);
+
+  useEffect(() => {
+    if (current_agent_id) {
+      restoredDefaultsRef.current = false;
+      return;
+    }
+    if (
+      restoredDefaultsRef.current ||
+      endpointsConfig == null ||
+      !modelsQuery.isFetchedAfterMount ||
+      !modelsQuery.isSuccess
+    ) {
+      return;
+    }
+
+    restoredDefaultsRef.current = true;
+    if (dirtyFields.provider || dirtyFields.model) {
+      return;
+    }
+    const storedProvider = localStorage.getItem(LocalStorageKeys.LAST_AGENT_PROVIDER) ?? '';
+    const storedModel = localStorage.getItem(LocalStorageKeys.LAST_AGENT_MODEL) ?? '';
+    const availableSelection = getAvailableAgentSelection({
+      provider: storedProvider,
+      model: storedModel,
+      providers,
+      models,
+    });
+
+    setValue('provider', createProviderOption(availableSelection.provider));
+    setValue('model', availableSelection.model);
+
+    if (availableSelection.provider !== storedProvider) {
+      localStorage.removeItem(LocalStorageKeys.LAST_AGENT_PROVIDER);
+      localStorage.removeItem(LocalStorageKeys.LAST_AGENT_MODEL);
+    } else if (availableSelection.model !== storedModel) {
+      localStorage.removeItem(LocalStorageKeys.LAST_AGENT_MODEL);
+    }
+  }, [
+    current_agent_id,
+    dirtyFields.model,
+    dirtyFields.provider,
+    endpointsConfig,
+    models,
+    modelsQuery.isFetchedAfterMount,
+    modelsQuery.isSuccess,
+    providers,
+    setValue,
+  ]);
 
   /* Mutations */
   const update = useUpdateAgentMutation({
@@ -633,7 +693,13 @@ export default function AgentPanel() {
             </div>
           )}
           {canEditAgent && !agentQuery.isInitialLoading && activePanel === Panel.model && (
-            <ModelPanel models={models} providers={providers} setActivePanel={setActivePanel} />
+            <ModelPanel
+              models={models}
+              providers={providers}
+              modelsFetched={modelsQuery.isFetchedAfterMount && modelsQuery.isSuccess}
+              pendingProviderModelRef={pendingProviderModelRef}
+              setActivePanel={setActivePanel}
+            />
           )}
           {canEditAgent && !agentQuery.isInitialLoading && activePanel === Panel.builder && (
             <AgentConfig />

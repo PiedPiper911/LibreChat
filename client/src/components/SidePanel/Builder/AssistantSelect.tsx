@@ -17,8 +17,8 @@ import type {
   AssistantsEndpoint,
   AssistantCreateParams,
 } from 'librechat-data-provider';
+import type { UseFormReset, UseFormSetValue } from 'react-hook-form';
 import type { UseMutationResult } from '@tanstack/react-query';
-import type { UseFormReset } from 'react-hook-form';
 import type {
   Actions,
   ExtendedFile,
@@ -26,9 +26,9 @@ import type {
   TAssistantOption,
   LastSelectedModels,
 } from '~/common';
+import { cn, createDropdownSetter, getAvailableModelSelection } from '~/utils';
 import { useListAssistantsQuery } from '~/data-provider';
 import { useLocalize, useLocalStorage } from '~/hooks';
-import { cn, createDropdownSetter } from '~/utils';
 import { useFileMapContext } from '~/Providers';
 
 const keys = new Set([
@@ -50,6 +50,11 @@ export default function AssistantSelect({
   setCurrentAssistantId,
   createMutation,
   allTools,
+  models,
+  modelsFetched,
+  setValue,
+  model,
+  modelDirty,
 }: {
   reset: UseFormReset<AssistantForm>;
   value: TAssistantOption;
@@ -59,10 +64,16 @@ export default function AssistantSelect({
   setCurrentAssistantId: React.Dispatch<React.SetStateAction<string | undefined>>;
   createMutation: UseMutationResult<Assistant, Error, AssistantCreateParams>;
   allTools?: TPlugin[];
+  models: readonly string[];
+  modelsFetched: boolean;
+  setValue: UseFormSetValue<AssistantForm>;
+  model: string;
+  modelDirty: boolean;
 }) {
   const localize = useLocalize();
   const fileMap = useFileMapContext();
   const lastSelectedAssistant = useRef<string | null>(null);
+  const pendingCreateDefaults = useRef(false);
   const [lastSelectedModels] = useLocalStorage<LastSelectedModels | undefined>(
     LocalStorageKeys.LAST_MODEL,
     {} as LastSelectedModels,
@@ -152,11 +163,18 @@ export default function AssistantSelect({
       createMutation.reset();
       if (!assistant) {
         setCurrentAssistantId(undefined);
+        if (!modelsFetched) {
+          pendingCreateDefaults.current = true;
+          return reset(defaultAssistantFormValues);
+        }
+        pendingCreateDefaults.current = false;
         return reset({
           ...defaultAssistantFormValues,
-          model: lastSelectedModels?.[endpoint] ?? '',
+          model: getAvailableModelSelection(lastSelectedModels?.[endpoint] ?? '', models),
         });
       }
+
+      pendingCreateDefaults.current = false;
 
       const update = {
         ...assistant,
@@ -238,9 +256,40 @@ export default function AssistantSelect({
       createMutation,
       endpoint,
       lastSelectedModels,
+      models,
+      modelsFetched,
       toolkits,
     ],
   );
+
+  useEffect(() => {
+    if (selectedAssistant != null && selectedAssistant !== '') {
+      pendingCreateDefaults.current = false;
+      return;
+    }
+    if (!modelsFetched || !pendingCreateDefaults.current) {
+      return;
+    }
+    pendingCreateDefaults.current = false;
+    if (modelDirty) {
+      if (!models.includes(model)) {
+        setValue('model', '', { shouldDirty: false });
+      }
+      return;
+    }
+    setValue('model', getAvailableModelSelection(lastSelectedModels?.[endpoint] ?? '', models), {
+      shouldDirty: false,
+    });
+  }, [
+    endpoint,
+    lastSelectedModels,
+    model,
+    modelDirty,
+    models,
+    modelsFetched,
+    selectedAssistant,
+    setValue,
+  ]);
 
   useEffect(() => {
     let timerId: NodeJS.Timeout | null = null;
